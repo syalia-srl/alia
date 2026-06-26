@@ -180,28 +180,33 @@ class HudWindow(Gtk.ApplicationWindow):
             self._call("aliaEndTool", call_id, status)
 
     def ask_approval(self, tool_name: str, arguments: dict, resolve) -> bool:
-        """Inline Approve/Deny bar for a gated tool call. resolve(bool) on click."""
+        """Inline approval bar for a gated command. resolve("deny"|"once"|"session")."""
+        from .policy import approval_prefix
+
         self.present()
         command = arguments.get("command", "")
+        prefix = approval_prefix(command)
         bar = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
         bar.add_css_class("alia-approval")
 
-        prompt = Gtk.Label(label=f"Ejecutar este comando ({tool_name})?", xalign=0.0)
+        prompt = Gtk.Label(label="Ejecutar este comando?", xalign=0.0)
         cmd = Gtk.Label(label=command, xalign=0.0, wrap=True, selectable=True)
         cmd.add_css_class("alia-cmd")
         buttons = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8,
                           halign=Gtk.Align.END)
-        approve = Gtk.Button(label="Aprobar")
         deny = Gtk.Button(label="Denegar")
-        buttons.append(deny); buttons.append(approve)
+        once = Gtk.Button(label="Aprobar")
+        always = Gtk.Button(label=f"Permitir «{prefix}» esta sesión")
+        buttons.append(deny); buttons.append(always); buttons.append(once)
         bar.append(prompt); bar.append(cmd); bar.append(buttons)
         self.approval_holder.append(bar)
 
-        def decide(decision: bool) -> None:
+        def decide(decision: str) -> None:
             self.approval_holder.remove(bar)
             resolve(decision)
 
-        approve.connect("clicked", lambda _b: decide(True))
-        deny.connect("clicked", lambda _b: decide(False))
-        approve.grab_focus()
+        deny.connect("clicked", lambda _b: decide("deny"))
+        once.connect("clicked", lambda _b: decide("once"))
+        always.connect("clicked", lambda _b: decide("session"))
+        once.grab_focus()
         return False

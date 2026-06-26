@@ -24,6 +24,7 @@ from lovelaice.coding.tools.bash import bash as bash_tool
 from lovelaice.coding.tools.read import read as read_tool
 
 from .persona import ALIA_SYSTEM_PROMPT
+from .policy import approval_prefix, is_auto_safe, matches_prefix
 
 DEFAULT_MODEL = "anthropic/claude-haiku-4.5"
 DEFAULT_BASE_URL = "https://openrouter.ai/api/v1"
@@ -33,23 +34,34 @@ _NO_KEY = "NO_API_KEY_SET"
 # (notably read) is auto-allowed.
 GATED_TOOLS = {"bash"}
 
-# async (tool_name, arguments) -> bool
-ApprovalHandler = Callable[[str, dict], Awaitable[bool]]
+# async (tool_name, arguments) -> "deny" | "once" | "session"
+ApprovalHandler = Callable[[str, dict], Awaitable[str]]
 
 
-async def _deny_all(_tool_name: str, _arguments: dict) -> bool:
+async def _deny_all(_tool_name: str, _arguments: dict) -> str:
     """Fail-safe default: deny gated tools when no handler is wired."""
-    return False
+    return "deny"
 
 
-def make_approval_hook(handler: ApprovalHandler):
-    """A tool_call reducer hook: gate GATED_TOOLS behind `handler`, allow rest."""
+def make_approval_hook(handler: ApprovalHandler, approved_prefixes: set[str]):
+    """tool_call reducer: auto-allow safe / session-approved bash, else ask.
+
+    `approved_prefixes` is mutated in place when the user picks "session".
+    """
 
     async def approval_hook(call):
         if call.name not in GATED_TOOLS:
             return None  # auto-allow (read, etc.)
-        approved = await handler(call.name, dict(call.arguments or {}))
-        return Allow() if approved else Block(reason="declined by the user")
+        command = (call.arguments or {}).get("command", "")
+        if is_auto_safe(command) or matches_prefix(command, approved_prefixes):
+            return Allow()
+        decision = await handler(call.name, dict(call.arguments or {}))
+        if decision == "session":
+            approved_prefixes.add(approval_prefix(command))
+            return Allow()
+        if decision == "once":
+            return Allow()
+        return Block(reason="declined by the user")
 
     return approval_hook
 
@@ -70,6 +82,7 @@ def create_alia_agent(
     *,
     session_path: Path,
     approval_handler: ApprovalHandler | None = None,
+    approved_prefixes: set[str] | None = None,
     model: str | None = None,
     cwd: str | None = None,
     base_url: str | None = None,
@@ -95,5 +108,8 @@ def create_alia_agent(
     # then the interactive approval gate.
     agent.harness.hooks.register("tool_call", bash_prefix_guard)
     agent.harness.hooks.register(
-        "tool_call", make_approval_hook(approval_handler or _deny_all))
+        "tool_call",
+        make_approval_hook(approval_handler or _deny_all,
+                           approved_prefixes if approved_prefixes is not None else set()),
+    )
     return agent

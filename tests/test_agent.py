@@ -24,6 +24,8 @@ def _toolcall(name, **args):
 
 
 class _Spy:
+    """Approval handler stub returning "deny" | "once" | "session"."""
+
     def __init__(self, decision):
         self.decision = decision
         self.calls = []
@@ -54,39 +56,60 @@ async def test_read_is_not_gated(monkeypatch, tmp_path):
     target = tmp_path / "note.txt"
     target.write_text("hello from disk")
     _patch_llm(monkeypatch, [_toolcall("read", path=str(target)), "done"])
-    spy = _Spy(True)
+    spy = _Spy("once")
     agent = AliaAgent(session_path=tmp_path / "s.jsonl", approval_handler=spy)
     await agent.chat("read it")
     assert spy.calls == []  # read auto-allowed; approval never asked
 
 
-async def test_bash_runs_when_approved(monkeypatch, tmp_path):
+async def test_safe_bash_auto_runs_without_asking(monkeypatch, tmp_path):
+    _patch_llm(monkeypatch, [_toolcall("bash", command="ls -la /tmp"), "done"])
+    spy = _Spy("deny")  # would block — but a safe command must not even ask
+    agent = AliaAgent(session_path=tmp_path / "s.jsonl", approval_handler=spy)
+    await agent.chat("list tmp")
+    assert spy.calls == []  # allowlisted -> ran without prompting
+
+
+async def test_unsafe_bash_runs_when_approved_once(monkeypatch, tmp_path):
     marker = tmp_path / "ran.txt"
     _patch_llm(monkeypatch, [_toolcall("bash", command=f"touch {marker}"), "done"])
-    spy = _Spy(True)
+    spy = _Spy("once")
     agent = AliaAgent(session_path=tmp_path / "s.jsonl", approval_handler=spy)
     await agent.chat("touch the marker")
     assert spy.calls == [("bash", {"command": f"touch {marker}"})]
-    assert marker.exists()  # approved -> command actually ran
+    assert marker.exists()
 
 
-async def test_bash_blocked_when_denied(monkeypatch, tmp_path):
+async def test_unsafe_bash_blocked_when_denied(monkeypatch, tmp_path):
     marker = tmp_path / "ran.txt"
     _patch_llm(monkeypatch, [_toolcall("bash", command=f"touch {marker}"), "ok, won't"])
-    spy = _Spy(False)
+    spy = _Spy("deny")
     agent = AliaAgent(session_path=tmp_path / "s.jsonl", approval_handler=spy)
     await agent.chat("touch the marker")
-    assert spy.calls == [("bash", {"command": f"touch {marker}"})]
-    assert not marker.exists()  # denied -> command never ran
+    assert not marker.exists()  # denied -> never ran
+
+
+async def test_session_approval_remembers_prefix(monkeypatch, tmp_path):
+    a, b = tmp_path / "a.txt", tmp_path / "b.txt"
+    _patch_llm(monkeypatch, [
+        _toolcall("bash", command=f"touch {a}"), "first",
+        _toolcall("bash", command=f"touch {b}"), "second",
+    ])
+    spy = _Spy("session")
+    agent = AliaAgent(session_path=tmp_path / "s.jsonl", approval_handler=spy)
+    await agent.chat("touch a")   # asks once, approves "touch" for the session
+    await agent.chat("touch b")   # same prefix -> must NOT ask again
+    assert len(spy.calls) == 1
+    assert a.exists() and b.exists()
+    assert "touch" in agent.approved_prefixes
 
 
 async def test_tool_events_surface_to_on_event(monkeypatch, tmp_path):
-    marker = tmp_path / "ran.txt"
-    _patch_llm(monkeypatch, [_toolcall("bash", command=f"touch {marker}"), "done"])
+    _patch_llm(monkeypatch, [_toolcall("bash", command="ls /tmp"), "done"])
     events: list[str] = []
     agent = AliaAgent(
         session_path=tmp_path / "s.jsonl",
-        approval_handler=_Spy(True),
+        approval_handler=_Spy("deny"),
         on_event=lambda kind, params: events.append(kind),
     )
     await agent.chat("go")

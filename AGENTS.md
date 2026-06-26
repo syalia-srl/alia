@@ -65,9 +65,15 @@ isolated venv won't find `gi`.
 ## Capability surface (v1.0)
 
 - Tools: `read` (auto-allowed) + `bash` (approval-gated). Gate is an async
-  `tool_call` hook in `host.create_alia_agent` that awaits an
-  `approval_handler` (app bridges it to the HUD's inline Approve/Deny bar via an
-  asyncio future). `bash_prefix_guard` runs first as a hard red-line.
+  `tool_call` hook in `host.create_alia_agent`. Order: `bash_prefix_guard`
+  (hard red-line) → policy check → `approval_handler`.
+- `policy.py` decides auto-approval: `is_auto_safe` (read-only allowlist +
+  safe sub-commands) and `matches_prefix` (session-approved prefixes). A
+  command with shell operators (`;|><&&$(`) NEVER auto-approves — always
+  prompts. Tests in `test_policy.py` (pure, safety-critical).
+- The handler returns `"deny" | "once" | "session"`; `"session"` adds
+  `approval_prefix(command)` to a per-launch set (`AliaAgent.approved_prefixes`)
+  shared with the hook. The HUD bar shows three buttons.
 - NOTE: lovelaice's own `AskUser`/`session/request_permission` is VS2 / not
   wired, so we do NOT use it — ALIA owns the approval bridge in-process.
 

@@ -21,12 +21,16 @@ to the local Ollama daemon).
   the agent stays alive in the background.
 - **She acts on your machine via the shell**, with you in the loop:
   - `read(path)` — reads any file, **silently** (observation is free).
-  - `bash(command)` — runs a shell command, but **every command waits for your
-    approval** (an inline Approve/Deny bar shows the exact command first). This
-    is how she manages files, launches apps, changes GNOME settings, sends
-    notifications, inspects the system, uses git, …
-  - Hard red-lines always blocked (`sudo`, `rm -rf /` …); tool activity is shown
-    in the transcript as it happens.
+  - `bash(command)` — runs a shell command. **Well-known read-only commands
+    auto-run** (`ls`, `cat`, `df`, `git status`, …); anything else shows an
+    inline bar with **Deny / Approve / Permitir «prefix» esta sesión**. Picking
+    the session option auto-approves that command *prefix* (e.g. `git push`,
+    `npm install`) for the rest of the run. This is how she manages files,
+    launches apps, changes GNOME settings, inspects the system, uses git, …
+  - **Safety floor:** any command containing shell operators (`;`, `|`, `>`,
+    `&&`, `$(…)`) always prompts — a safe lead can't smuggle a dangerous tail.
+    Hard red-lines (`sudo`, `rm -rf /` …) are blocked outright. Tool activity is
+    shown in the transcript as it happens.
 - Conversation persists per session to `~/.alia/sessions/<ts>.jsonl`.
 - Model-agnostic via the lovelaice engine: defaults to **Haiku over OpenRouter**
   (`anthropic/claude-haiku-4.5`), points anywhere OpenAI-compatible.

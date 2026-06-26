@@ -45,6 +45,9 @@ class AliaAgent:
         self.session_path.parent.mkdir(parents=True, exist_ok=True)
         self.cwd = cwd or os.path.expanduser("~")
         self._approval_handler = approval_handler
+        # Session-scoped set of bash prefixes the user approved "for this
+        # session"; shared with the host's approval hook, reset per app launch.
+        self.approved_prefixes: set[str] = set()
         # on_event(kind, params): kind is "tool_call" | "tool_call_update".
         self._on_event = on_event
         self._server = AcpServer(
@@ -52,6 +55,7 @@ class AliaAgent:
                 session_path=self.session_path,
                 cwd=self.cwd,
                 approval_handler=self._approval_handler,
+                approved_prefixes=self.approved_prefixes,
             )
         )
         self._client = InProcessAcpClient(self._server)

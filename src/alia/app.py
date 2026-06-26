@@ -52,13 +52,16 @@ class AliaApp(Gtk.Application):
     def do_activate(self) -> None:
         self._ensure_window().toggle()
 
-    async def _approve(self, tool_name: str, arguments: dict) -> bool:
-        """Bridge an agent approval request to a HUD confirm; await the click."""
+    async def _approve(self, tool_name: str, arguments: dict) -> str:
+        """Bridge an agent approval request to the HUD; await the choice.
+
+        Returns "deny" | "once" | "session".
+        """
         loop = self._loop
         assert loop is not None
         future = loop.create_future()
 
-        def resolve(decision: bool) -> None:
+        def resolve(decision: str) -> None:
             loop.call_soon_threadsafe(future.set_result, decision)
 
         GLib.idle_add(self._ensure_window().ask_approval, tool_name, arguments, resolve)
