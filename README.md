@@ -45,12 +45,18 @@ make run
 `make run` starts the resident app. To summon it with a key:
 
 ```sh
-make shortcut                 # binds <Super>a → ALIA
-BINDING='<Super>space' make shortcut   # or pick your own
+make shortcut                 # binds <Super>i → ALIA
+BINDING='<Super>j' make shortcut   # or pick your own free key
 ```
 
-(The bare Super/Windows key is reserved by GNOME for the Activities overview;
-cleanly rebinding it is a follow-up. `<Super>a` is the default.)
+**Picking a key.** Many obvious combos are already grabbed and will silently do
+nothing if you bind a custom shortcut to them: the bare Super/Windows key
+(Activities overview), `<Super>space` (ibus input-source switch — an
+*independent* grabber, so freeing the WM binding isn't enough), and often F12
+(terminal dropdowns). The default is **`<Super>i`** (mnemonic for *IA*). If a
+binding seems dead, it's almost certainly already taken — check
+`/tmp/alia-launch.log`: the launcher logs every time the shortcut actually
+fires, so an empty log means the key never reached ALIA.
 
 ## Config
 

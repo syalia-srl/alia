@@ -1,14 +1,20 @@
 #!/usr/bin/env bash
 # Register a GNOME custom keyboard shortcut that summons ALIA.
 #
-# Default binding: <Super>a  (the bare Super key is reserved by GNOME for the
-# Activities overview and can't be cleanly rebound here — that's a follow-up).
-# Override with:  BINDING='<Super>space' ./scripts/install-shortcut.sh
+# Default binding: <Super>i  (mnemonic for IA). Note that many obvious combos
+# are already grabbed and won't fire a custom shortcut:
+#   - the bare Super key      -> GNOME Activities overview
+#   - <Super>space            -> ibus input-source switch (independent grabber)
+#   - F12                     -> often a terminal-dropdown shortcut
+# If your chosen binding does nothing, it's almost certainly already taken.
+# Override with:  BINDING='<Super>j' ./scripts/install-shortcut.sh
 set -euo pipefail
 
 REPO_DIR="$(cd "$(dirname "$0")/.." && pwd)"
-BINDING="${BINDING:-<Super>a}"
-COMMAND="${REPO_DIR}/.venv/bin/python -m alia"
+BINDING="${BINDING:-<Super>i}"
+# Launch via the wrapper (logs each fire to /tmp/alia-launch.log; handy for
+# diagnosing whether the shortcut fired at all).
+COMMAND="${REPO_DIR}/scripts/alia-launch.sh"
 SLOT="alia"
 BASE="org.gnome.settings-daemon.plugins.media-keys"
 PATH_PREFIX="/org/gnome/settings-daemon/plugins/media-keys/custom-keybindings"
