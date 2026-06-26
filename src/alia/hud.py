@@ -1,21 +1,30 @@
 """The ALIA HUD — a borderless GNOME overlay you summon with a key.
 
-Minimal slice: a transcript view + an input entry. Enter sends, Esc hides.
-Closing hides too (the app stays resident in the background).
+Transcript is a WebKitGTK WebView (real markdown + syntax highlighting, reusing
+superbot's marked/highlight assets). The input entry and the Approve/Deny bar
+stay native GTK below it. Enter sends, Esc hides; closing hides (the app stays
+resident). Input is locked while a turn runs; an in-page spinner shows activity.
 """
 
 from __future__ import annotations
 
+import json
+from pathlib import Path
+
 import gi
 
 gi.require_version("Gtk", "4.0")
-from gi.repository import Gdk, Gtk, Pango  # noqa: E402
+gi.require_version("Gdk", "4.0")
+gi.require_version("WebKit", "6.0")
+from gi.repository import Gdk, Gtk, WebKit  # noqa: E402
+
+_STATIC = Path(__file__).parent / "static"
+_TRANSCRIPT_URI = (_STATIC / "transcript.html").as_uri()
 
 _CSS = b"""
-.alia-hud { background-color: rgba(20, 22, 28, 0.92); border-radius: 16px; }
+.alia-hud { background-color: rgba(17, 19, 23, 0.96); border-radius: 16px; }
 .alia-header { font-weight: 700; color: #d7c9ff; }
 .alia-dot { color: #9b7dff; font-size: 16px; }
-.alia-transcript { background: transparent; color: #e8e8ec; padding: 8px; font-size: 14px; }
 .alia-entry { background: rgba(255,255,255,0.06); color: #ffffff; border-radius: 10px; padding: 8px; }
 .alia-approval { background: rgba(155,125,255,0.14); border-radius: 10px; padding: 8px; }
 .alia-cmd { font-family: monospace; color: #ffd28a; }
@@ -26,9 +35,8 @@ class HudWindow(Gtk.ApplicationWindow):
     def __init__(self, app: Gtk.Application) -> None:
         super().__init__(application=app, title="ALIA")
         self.app = app
-
         self.set_decorated(False)
-        self.set_default_size(640, 460)
+        self.set_default_size(660, 520)
         self.add_css_class("alia-hud")
 
         provider = Gtk.CssProvider()
@@ -38,35 +46,30 @@ class HudWindow(Gtk.ApplicationWindow):
         )
 
         root = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
-        root.set_margin_top(14)
-        root.set_margin_bottom(14)
-        root.set_margin_start(16)
-        root.set_margin_end(16)
+        for m in ("top", "bottom", "start", "end"):
+            getattr(root, f"set_margin_{m}")(14)
         self.set_child(root)
         self.root = root
 
         header = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
-        dot = Gtk.Label(label="●")
-        dot.add_css_class("alia-dot")
-        title = Gtk.Label(label="ALIA")
-        title.add_css_class("alia-header")
-        header.append(dot)
-        header.append(title)
+        dot = Gtk.Label(label="●"); dot.add_css_class("alia-dot")
+        title = Gtk.Label(label="ALIA"); title.add_css_class("alia-header")
+        header.append(dot); header.append(title)
         root.append(header)
 
-        scroll = Gtk.ScrolledWindow()
-        scroll.set_vexpand(True)
-        scroll.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
-        self.view = Gtk.TextView()
-        self.view.set_editable(False)
-        self.view.set_cursor_visible(False)
-        self.view.set_wrap_mode(Gtk.WrapMode.WORD_CHAR)
-        self.view.add_css_class("alia-transcript")
-        self.buffer = self.view.get_buffer()
-        scroll.set_child(self.view)
-        root.append(scroll)
+        # Transcript: WebKit WebView.
+        self.web = WebKit.WebView()
+        self.web.set_vexpand(True)
+        self.web.set_background_color(Gdk.RGBA(red=0.067, green=0.075, blue=0.090, alpha=1.0))
+        settings = self.web.get_settings()
+        settings.set_property("allow-file-access-from-file-urls", True)
+        settings.set_property("enable-developer-extras", True)
+        self._ready = False
+        self._pending: list[str] = []
+        self.web.connect("load-changed", self._on_load_changed)
+        self.web.load_uri(_TRANSCRIPT_URI)
+        root.append(self.web)
 
-        # Holder for the inline approval bar (shown only while a command waits).
         self.approval_holder = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
         root.append(self.approval_holder)
 
@@ -79,14 +82,34 @@ class HudWindow(Gtk.ApplicationWindow):
         key = Gtk.EventControllerKey()
         key.connect("key-pressed", self._on_key)
         self.add_controller(key)
-
-        # Hide instead of destroy, so the agent stays resident.
         self.connect("close-request", self._on_close)
 
         self._busy = False
-        self._greet()
 
-    # ---- presence / visibility --------------------------------------------
+    # ---- JS bridge ----------------------------------------------------------
+
+    def _on_load_changed(self, _web, event) -> None:
+        if event == WebKit.LoadEvent.FINISHED:
+            self._ready = True
+            for js in self._pending:
+                self._eval(js)
+            self._pending.clear()
+            self._greet()
+
+    def _eval(self, js: str) -> None:
+        self.web.evaluate_javascript(js, -1, None, None, None, None)
+
+    def _js(self, js: str) -> None:
+        if self._ready:
+            self._eval(js)
+        else:
+            self._pending.append(js)
+
+    def _call(self, fn: str, *args) -> None:
+        packed = ", ".join(json.dumps(a) for a in args)
+        self._js(f"{fn}({packed});")
+
+    # ---- visibility ---------------------------------------------------------
 
     def toggle(self) -> None:
         if self.get_visible():
@@ -95,11 +118,11 @@ class HudWindow(Gtk.ApplicationWindow):
             self.present()
             self.entry.grab_focus()
 
-    def _on_close(self, *_args) -> bool:
+    def _on_close(self, *_a) -> bool:
         self.set_visible(False)
-        return True  # stop the default destroy
+        return True
 
-    def _on_key(self, _ctrl, keyval, _code, _state) -> bool:
+    def _on_key(self, _c, keyval, _code, _state) -> bool:
         if keyval == Gdk.KEY_Escape:
             self.set_visible(False)
             return True
@@ -110,90 +133,64 @@ class HudWindow(Gtk.ApplicationWindow):
     def _greet(self) -> None:
         from .agent import api_key_configured
 
-        self._append("ALIA", "Hola. Soy ALIA — estoy aquí.")
+        self._call("aliaAddAssistant", "Hola. Soy ALIA — estoy aquí.")
         if not api_key_configured():
-            self._append(
-                "ALIA",
-                "(aún no tengo una API key configurada — exporta ALIA_API_KEY "
-                "o OPENROUTER_API_KEY antes de iniciarme para poder responder.)",
+            self._call(
+                "aliaAddAssistant",
+                "*(aún no tengo una API key configurada — exporta `ALIA_API_KEY` "
+                "o `OPENROUTER_API_KEY` antes de iniciarme para poder responder.)*",
             )
 
-    def _append(self, who: str, text: str) -> None:
-        end = self.buffer.get_end_iter()
-        prefix = "\n" if self.buffer.get_char_count() else ""
-        self.buffer.insert(end, f"{prefix}{who}: {text}\n")
-        self._scroll_to_end()
-
-    def _append_token(self, token: str) -> None:
-        self.buffer.insert(self.buffer.get_end_iter(), token)
-        self._scroll_to_end()
-
-    def _scroll_to_end(self) -> None:
-        mark = self.buffer.create_mark(None, self.buffer.get_end_iter(), False)
-        self.view.scroll_to_mark(mark, 0.0, True, 0.0, 1.0)
+    def _set_busy(self, busy: bool, text: str | None = None) -> None:
+        self._busy = busy
+        self.entry.set_sensitive(not busy)
+        self._call("aliaSetBusy", busy, text or "ALIA está trabajando…")
 
     def _on_submit(self, entry: Gtk.Entry) -> None:
         text = entry.get_text().strip()
         if not text or self._busy:
             return
         entry.set_text("")
-        self._busy = True
-        self._append("Tú", text)
-        # open ALIA's line; tokens stream into it
-        self.buffer.insert(self.buffer.get_end_iter(), "\nALIA: ")
-        self.app.submit(text, self._append_token, self._on_reply_done)
+        self._call("aliaAddUser", text)
+        self._set_busy(True)
+        self.app.submit(text, self._on_token, self._on_reply_done)
 
-    def _on_reply_done(self, _reply: str) -> None:
-        self.buffer.insert(self.buffer.get_end_iter(), "\n")
-        self._busy = False
-        self._scroll_to_end()
+    def _on_token(self, _tok: str) -> None:
+        # One finalized chunk per turn today; render on done. Hook kept for
+        # future token-level streaming.
+        pass
+
+    def _on_reply_done(self, reply: str) -> None:
+        self._call("aliaAddAssistant", reply)
+        self._set_busy(False)
 
     # ---- tools & approval ---------------------------------------------------
 
     def on_tool_event(self, kind: str, params: dict) -> None:
-        """Render tool activity from ACP session/update notifications."""
         if kind == "tool_call":
-            title = params.get("title", "tool")
             raw = params.get("rawInput") or {}
             detail = raw.get("command") or raw.get("path") or ""
-            self._append_dim(f"→ {title}: {detail}".rstrip(": "))
+            self._call("aliaAddTool", params.get("title", "tool"), detail, "")
         elif kind == "tool_call_update":
-            if params.get("status") == "completed":
-                self._append_dim("  ✓ done")
-            else:
-                err = ""
-                content = params.get("content") or []
-                if content and isinstance(content[0], dict):
-                    err = content[0].get("text", "")
-                self._append_dim(f"  ✗ {err or 'failed'}")
-
-    def _append_dim(self, text: str) -> None:
-        self.buffer.insert(self.buffer.get_end_iter(), f"\n{text}")
-        self._scroll_to_end()
+            status = "done" if params.get("status") == "completed" else "failed"
+            self._call("aliaAddTool", "", "", status)
 
     def ask_approval(self, tool_name: str, arguments: dict, resolve) -> bool:
-        """Show an inline approval bar for a gated tool call; resolve(bool) on click.
-
-        Runs on the GTK thread (via idle_add). Returns False to satisfy
-        GLib.idle_add (one-shot).
-        """
+        """Inline Approve/Deny bar for a gated tool call. resolve(bool) on click."""
         self.present()
         command = arguments.get("command", "")
         bar = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
         bar.add_css_class("alia-approval")
 
-        prompt = Gtk.Label(label=f"Run this {tool_name} command?", xalign=0.0)
+        prompt = Gtk.Label(label=f"Ejecutar este comando ({tool_name})?", xalign=0.0)
         cmd = Gtk.Label(label=command, xalign=0.0, wrap=True, selectable=True)
         cmd.add_css_class("alia-cmd")
         buttons = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8,
                           halign=Gtk.Align.END)
-        approve = Gtk.Button(label="Approve")
-        deny = Gtk.Button(label="Deny")
-        buttons.append(deny)
-        buttons.append(approve)
-        bar.append(prompt)
-        bar.append(cmd)
-        bar.append(buttons)
+        approve = Gtk.Button(label="Aprobar")
+        deny = Gtk.Button(label="Denegar")
+        buttons.append(deny); buttons.append(approve)
+        bar.append(prompt); bar.append(cmd); bar.append(buttons)
         self.approval_holder.append(bar)
 
         def decide(decision: bool) -> None:

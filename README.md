@@ -13,7 +13,10 @@ to the local Ollama daemon).
 
 ## What works today (v1.0)
 
-- A borderless GNOME HUD: transcript + input. **Enter** sends, **Esc** hides.
+- A borderless GNOME HUD with a **WebKit transcript** — real markdown +
+  syntax highlighting (reuses superbot's `marked`/`highlight`), an in-page
+  "working…" spinner, and input locked while a turn runs. **Enter** sends,
+  **Esc** hides.
 - A resident single-instance app — pressing the shortcut again toggles the HUD;
   the agent stays alive in the background.
 - **She acts on your machine via the shell**, with you in the loop:
@@ -35,6 +38,8 @@ mouse/keyboard/click — those are the next rungs. She says so when asked.
 
 - GNOME with **GTK 4** and its Python bindings (`python3-gobject` / PyGObject —
   from your distro, not pip).
+- **WebKitGTK 6.0** for the transcript (`gir1.2-webkit-6.0` on Debian/Ubuntu;
+  `webkitgtk6.0` on Fedora).
 - Python ≥ 3.13.
 
 ## Run
