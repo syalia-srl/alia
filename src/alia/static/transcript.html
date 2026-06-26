@@ -15,83 +15,121 @@
       font-family: -apple-system, "Inter", "Cantarell", system-ui, sans-serif;
       font-size: 14px; line-height: 1.55;
     }
-    #log { padding: 14px 16px 20px; }
+    #log { padding: 14px 16px 22px; }
     .msg { margin: 0 0 14px; }
     .role { font-size: 11px; font-weight: 700; letter-spacing: .06em;
-            text-transform: uppercase; margin-bottom: 3px; }
+            text-transform: uppercase; margin-bottom: 4px;
+            display: flex; align-items: center; gap: 7px; }
     .msg.user .role { color: var(--muted); }
     .msg.alia .role { color: var(--accent); }
+    .turn-timer { margin-left: auto; font-weight: 600; letter-spacing: 0;
+                  text-transform: none; color: var(--muted); font-variant-numeric: tabular-nums; }
+    .turn-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--accent); }
+    .turn.running .turn-dot { animation: pulse 1s ease-in-out infinite; }
+    @keyframes pulse { 0%,100% { opacity: .3; transform: scale(.8);} 50% { opacity: 1; transform: scale(1.1);} }
+
     .bubble.user { color: #cfd3dd; white-space: pre-wrap; }
+    .bubble.alia { margin: 4px 0; }
     .bubble.alia > *:first-child { margin-top: 0; }
     .bubble.alia > *:last-child { margin-bottom: 0; }
     .bubble.alia p { margin: .5em 0; }
     .bubble.alia h1,.bubble.alia h2,.bubble.alia h3 { margin: .8em 0 .3em; line-height: 1.25; }
-    .bubble.alia code { background: var(--panel2); padding: .12em .35em;
-                        border-radius: 5px; font-size: .92em; }
-    .bubble.alia pre { background: #0d0f13; border: 1px solid #2a2f3a;
-                       border-radius: 10px; padding: 12px; overflow-x: auto; }
+    .bubble.alia code { background: var(--panel2); padding: .12em .35em; border-radius: 5px; font-size: .92em; }
+    .bubble.alia pre { background: #0d0f13; border: 1px solid #2a2f3a; border-radius: 10px; padding: 12px; overflow-x: auto; }
     .bubble.alia pre code { background: none; padding: 0; }
     .bubble.alia ul,.bubble.alia ol { margin: .4em 0; padding-left: 1.3em; }
     .bubble.alia a { color: var(--accent); }
-    .bubble.alia blockquote { border-left: 3px solid var(--accent);
-                              margin: .5em 0; padding-left: .8em; color: var(--muted); }
-    .tool { font-family: ui-monospace, "JetBrains Mono", monospace;
-            font-size: 12.5px; background: var(--panel); border: 1px solid #262b35;
-            border-radius: 8px; padding: 7px 10px; margin: 6px 0; color: var(--muted); }
+    .bubble.alia blockquote { border-left: 3px solid var(--accent); margin: .5em 0; padding-left: .8em; color: var(--muted); }
+
+    .tool { font-family: ui-monospace, "JetBrains Mono", monospace; font-size: 12.5px;
+            background: var(--panel); border: 1px solid #262b35; border-radius: 8px;
+            padding: 7px 10px; margin: 6px 0; color: var(--muted); }
     .tool .cmd { color: var(--cmd); }
+    .tool .tool-timer { color: var(--muted); font-variant-numeric: tabular-nums; }
     .tool.done { border-color: #2f5d3a; }
     .tool.failed { border-color: #6b2f2f; color: #e0a3a3; }
-    #spinner { display: none; align-items: center; gap: 9px; color: var(--muted);
-               font-size: 13px; padding: 4px 2px 10px; }
-    #spinner.on { display: flex; }
-    .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--accent);
-           animation: pulse 1s ease-in-out infinite; }
-    @keyframes pulse { 0%,100% { opacity: .35; transform: scale(.8);} 50% { opacity: 1; transform: scale(1.1);} }
   </style>
 </head>
 <body>
   <div id="log"></div>
-  <div id="spinner"><span class="dot"></span><span id="spinner-text">ALIA está pensando…</span></div>
   <script src="assets/marked.min.js"></script>
   <script src="assets/highlight.min.js"></script>
   <script>
     const log = document.getElementById('log');
-    const spinner = document.getElementById('spinner');
-    const spinnerText = document.getElementById('spinner-text');
+    let turn = null;  // active ALIA turn: {el, body, timerEl, start, interval, tools}
 
-    function scrollEnd() { window.scrollTo(0, document.body.scrollHeight); }
+    const fmt = (ms) => (ms / 1000).toFixed(1) + 's';
+    const scrollEnd = () => window.scrollTo(0, document.body.scrollHeight);
 
     function aliaAddUser(text) {
-      const el = document.createElement('div');
-      el.className = 'msg user';
+      const el = document.createElement('div'); el.className = 'msg user';
       const r = document.createElement('div'); r.className = 'role'; r.textContent = 'Tú';
       const b = document.createElement('div'); b.className = 'bubble user'; b.textContent = text;
       el.appendChild(r); el.appendChild(b); log.appendChild(el); scrollEnd();
     }
 
+    function aliaBeginTurn() {
+      const el = document.createElement('div'); el.className = 'msg alia turn running';
+      const r = document.createElement('div'); r.className = 'role';
+      const dot = document.createElement('span'); dot.className = 'turn-dot';
+      const name = document.createElement('span'); name.textContent = 'ALIA';
+      const timer = document.createElement('span'); timer.className = 'turn-timer'; timer.textContent = '0.0s';
+      r.appendChild(dot); r.appendChild(name); r.appendChild(timer);
+      const body = document.createElement('div'); body.className = 'turn-body';
+      el.appendChild(r); el.appendChild(body); log.appendChild(el);
+      const start = performance.now();
+      const interval = setInterval(() => { timer.textContent = fmt(performance.now() - start); }, 100);
+      turn = { el, body, timerEl: timer, start, interval, tools: {} };
+      scrollEnd();
+    }
+
+    function aliaEndTurn() {
+      if (!turn) return;
+      clearInterval(turn.interval);
+      turn.timerEl.textContent = fmt(performance.now() - turn.start);
+      turn.el.classList.remove('running');
+      for (const id in turn.tools) if (turn.tools[id].interval) clearInterval(turn.tools[id].interval);
+      turn = null; scrollEnd();
+    }
+
     function aliaAddAssistant(md) {
-      const el = document.createElement('div');
-      el.className = 'msg alia';
-      const r = document.createElement('div'); r.className = 'role'; r.textContent = 'ALIA';
-      const b = document.createElement('div'); b.className = 'bubble alia';
-      try { b.innerHTML = marked.parse(md || ''); } catch (e) { b.textContent = md || ''; }
-      b.querySelectorAll('pre code').forEach(c => { try { hljs.highlightElement(c); } catch (e) {} });
-      el.appendChild(r); el.appendChild(b); log.appendChild(el); scrollEnd();
+      let target;
+      if (turn) {
+        target = document.createElement('div'); target.className = 'bubble alia';
+        turn.body.appendChild(target);
+      } else {  // standalone (e.g. greeting) — render with its own ALIA header
+        const el = document.createElement('div'); el.className = 'msg alia';
+        const r = document.createElement('div'); r.className = 'role'; r.textContent = 'ALIA';
+        target = document.createElement('div'); target.className = 'bubble alia';
+        el.appendChild(r); el.appendChild(target); log.appendChild(el);
+      }
+      try { target.innerHTML = marked.parse(md || ''); } catch (e) { target.textContent = md || ''; }
+      target.querySelectorAll('pre code').forEach(c => { try { hljs.highlightElement(c); } catch (e) {} });
+      scrollEnd();
     }
 
-    function aliaAddTool(title, detail, status) {
-      const el = document.createElement('div');
-      el.className = 'tool' + (status ? ' ' + status : '');
-      const icon = status === 'done' ? '✓ ' : status === 'failed' ? '✗ ' : '→ ';
-      el.innerHTML = icon + title + (detail ? ': <span class="cmd"></span>' : '');
-      if (detail) el.querySelector('.cmd').textContent = detail;
-      log.appendChild(el); scrollEnd();
+    function aliaAddTool(callId, title, detail) {
+      const el = document.createElement('div'); el.className = 'tool running';
+      const icon = document.createElement('span'); icon.textContent = '→ ';
+      const ttl = document.createElement('span'); ttl.textContent = title || 'tool';
+      const cmd = document.createElement('span'); cmd.className = 'cmd';
+      if (detail) cmd.textContent = ' ' + detail;
+      const tm = document.createElement('span'); tm.className = 'tool-timer';
+      el.appendChild(icon); el.appendChild(ttl); el.appendChild(cmd); el.appendChild(tm);
+      (turn ? turn.body : log).appendChild(el);
+      const start = performance.now();
+      const interval = setInterval(() => { tm.textContent = ' · ' + fmt(performance.now() - start); }, 100);
+      if (turn) turn.tools[callId] = { el, icon, tm, start, interval };
+      scrollEnd();
     }
 
-    function aliaSetBusy(on, text) {
-      spinner.classList.toggle('on', !!on);
-      if (text) spinnerText.textContent = text;
-      if (on) scrollEnd();
+    function aliaEndTool(callId, status) {
+      const t = turn && turn.tools[callId];
+      if (!t) return;
+      clearInterval(t.interval); t.interval = null;
+      t.el.classList.remove('running'); t.el.classList.add(status);
+      t.icon.textContent = status === 'done' ? '✓ ' : '✗ ';
+      t.tm.textContent = ' · ' + fmt(performance.now() - t.start);
     }
   </script>
 </body>

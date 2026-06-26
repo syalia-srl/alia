@@ -141,10 +141,9 @@ class HudWindow(Gtk.ApplicationWindow):
                 "o `OPENROUTER_API_KEY` antes de iniciarme para poder responder.)*",
             )
 
-    def _set_busy(self, busy: bool, text: str | None = None) -> None:
+    def _set_busy(self, busy: bool) -> None:
         self._busy = busy
-        self.entry.set_sensitive(not busy)
-        self._call("aliaSetBusy", busy, text or "ALIA está trabajando…")
+        self.entry.set_sensitive(not busy)  # input lock; turn timer shows activity
 
     def _on_submit(self, entry: Gtk.Entry) -> None:
         text = entry.get_text().strip()
@@ -152,28 +151,31 @@ class HudWindow(Gtk.ApplicationWindow):
             return
         entry.set_text("")
         self._call("aliaAddUser", text)
+        self._call("aliaBeginTurn")  # ALIA header + live turn timer; tools nest under it
         self._set_busy(True)
         self.app.submit(text, self._on_token, self._on_reply_done)
 
-    def _on_token(self, _tok: str) -> None:
-        # One finalized chunk per turn today; render on done. Hook kept for
-        # future token-level streaming.
-        pass
+    def _on_token(self, chunk: str) -> None:
+        # Each chunk is a finalized assistant message; render in arrival order
+        # so text and tool rows interleave correctly within the turn.
+        if chunk:
+            self._call("aliaAddAssistant", chunk)
 
-    def _on_reply_done(self, reply: str) -> None:
-        self._call("aliaAddAssistant", reply)
+    def _on_reply_done(self, _reply: str) -> None:
+        self._call("aliaEndTurn")
         self._set_busy(False)
 
     # ---- tools & approval ---------------------------------------------------
 
     def on_tool_event(self, kind: str, params: dict) -> None:
+        call_id = params.get("toolCallId", "")
         if kind == "tool_call":
             raw = params.get("rawInput") or {}
             detail = raw.get("command") or raw.get("path") or ""
-            self._call("aliaAddTool", params.get("title", "tool"), detail, "")
+            self._call("aliaAddTool", call_id, params.get("title", "tool"), detail)
         elif kind == "tool_call_update":
             status = "done" if params.get("status") == "completed" else "failed"
-            self._call("aliaAddTool", "", "", status)
+            self._call("aliaEndTool", call_id, status)
 
     def ask_approval(self, tool_name: str, arguments: dict, resolve) -> bool:
         """Inline Approve/Deny bar for a gated tool call. resolve(bool) on click."""
