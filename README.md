@@ -46,17 +46,37 @@ mouse/keyboard/click — those are the next rungs. She says so when asked.
   `webkitgtk6.0` on Fedora).
 - Python ≥ 3.13.
 
-## Run
+## Install
 
 ```sh
-# 1. configure a key (any OpenAI-compatible endpoint; OpenRouter by default)
-export ALIA_API_KEY="sk-or-..."
-# optional overrides:
-#   export ALIA_MODEL="anthropic/claude-haiku-4.5"
-#   export ALIA_BASE_URL="https://openrouter.ai/api/v1"
+git clone https://github.com/syalia-srl/alia && cd alia
+./install.sh
+```
 
-# 2. build the venv (uses --system-site-packages so GTK is visible) and launch
-make run
+`install.sh` installs ALIA user-local (no sudo for the app itself):
+
+- system GTK 4 + PyGObject + WebKitGTK 6.0 via `apt`/`dnf` — **only if missing**
+  (the one step that uses sudo);
+- a venv at `~/.local/share/alia/venv` with `alia` + the engine
+  (`lovelaice`/`lingo`/`beaver`) resolved from **PyPI**;
+- a launcher at `~/.local/bin/alia`, an app entry, and the `<Super>i` shortcut.
+
+Then configure a key and summon it:
+
+```sh
+mkdir -p ~/.config/alia
+echo 'ALIA_API_KEY=sk-or-...' >> ~/.config/alia/env   # any OpenAI-compatible key
+#   ALIA_MODEL=anthropic/claude-haiku-4.5   (optional)
+#   ALIA_BASE_URL=https://openrouter.ai/api/v1   (optional)
+```
+
+Press **`<Super>i`** (or run `alia`).
+
+## Run from source (dev)
+
+```sh
+export ALIA_API_KEY="sk-or-..."
+make run          # builds .venv (--system-site-packages) and launches
 ```
 
 `make run` starts the resident app. To summon it with a key:

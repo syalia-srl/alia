@@ -14,8 +14,6 @@ install: $(VENV)/.stamp
 $(VENV)/.stamp: pyproject.toml
 	python3 -m venv --system-site-packages $(VENV)
 	-$(PIP) install -U pip
-	# dev: editable local engine stack (beaver <- lingo <- lovelaice)
-	$(PIP) install -e ../beaver -e ../lingo -e ../lovelaice
 	$(PIP) install -e .
 	$(PIP) install pytest pytest-asyncio
 	touch $@
