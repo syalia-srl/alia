@@ -1,46 +1,55 @@
-"""Unit tests for the ALIA agent core, using lingo's MockLLM (no network)."""
+"""Unit tests for the ALIA agent core.
 
+ALIA runs on lovelaice's ACP runtime. We monkeypatch lovelaice's
+``_build_llm`` to a lingo ``MockLLM`` so the whole stack (host -> Agent ->
+ReActNative -> ACP server -> client) runs offline with no network.
+"""
+
+import lovelaice.agent.agent as agent_mod
 from lingo.mock import MockLLM
 
-from alia.agent import AliaAgent, build_llm, DEFAULT_MODEL, DEFAULT_BASE_URL
+from alia.agent import AliaAgent
+from alia.host import ALIA_SYSTEM_PROMPT, DEFAULT_MODEL, create_alia_agent
 
 
-async def test_replies_with_assistant_message():
-    agent = AliaAgent(llm=MockLLM(responses=["Hola, soy ALIA."]))
+def _patch_llm(monkeypatch, responses):
+    monkeypatch.setattr(agent_mod, "_build_llm", lambda cfg: MockLLM(responses=list(responses)))
+
+
+async def test_chat_returns_reply_through_lovelaice(monkeypatch, tmp_path):
+    _patch_llm(monkeypatch, ["Hola, soy ALIA."])
+    agent = AliaAgent(session_path=tmp_path / "s.jsonl")
     reply = await agent.chat("hola")
     assert reply == "Hola, soy ALIA."
-    assert agent.lingo.messages[-1].role == "assistant"
 
 
-async def test_keeps_conversation_history_across_turns():
-    agent = AliaAgent(llm=MockLLM(responses=["uno", "dos"]))
-    await agent.chat("primero")
-    await agent.chat("segundo")
-    roles = [m.role for m in agent.lingo.messages]
-    # both user turns are retained, in order
-    assert roles.count("user") == 2
-    assert agent.lingo.messages[-1].content == "dos"
+async def test_chat_streams_finalized_chunk(monkeypatch, tmp_path):
+    _patch_llm(monkeypatch, ["uno dos tres"])
+    agent = AliaAgent(session_path=tmp_path / "s.jsonl")
+    chunks: list[str] = []
+    reply = await agent.chat("cuenta", on_chunk=chunks.append)
+    assert "".join(chunks) == "uno dos tres"
+    assert reply == "uno dos tres"
 
 
-async def test_streams_tokens_to_callback():
-    agent = AliaAgent(llm=MockLLM(responses=["uno dos tres"]))
-    tokens: list[str] = []
-    agent.set_on_token(tokens.append)
-    await agent.chat("cuenta")
-    assert "".join(tokens).split() == ["uno", "dos", "tres"]
+async def test_session_persists_to_jsonl(monkeypatch, tmp_path):
+    _patch_llm(monkeypatch, ["listo"])
+    sp = tmp_path / "sessions" / "s.jsonl"
+    agent = AliaAgent(session_path=sp)
+    await agent.chat("hola")
+    assert sp.exists(), "session JSONL should be written under the agent's store"
 
 
-def test_build_llm_defaults_to_haiku_over_openrouter(monkeypatch):
-    for var in ("ALIA_MODEL", "MODEL", "ALIA_BASE_URL", "BASE_URL"):
-        monkeypatch.delenv(var, raising=False)
-    monkeypatch.setenv("ALIA_API_KEY", "test-key")  # so the client constructs
-    llm = build_llm()
-    assert llm.model == DEFAULT_MODEL
-    assert "openrouter.ai" in DEFAULT_BASE_URL  # default wired through build_llm
+def test_host_uses_alia_persona_and_no_tools(monkeypatch, tmp_path):
+    _patch_llm(monkeypatch, [])  # no LLM call — just construction
+    agent = create_alia_agent(session_path=tmp_path / "s.jsonl")
+    assert agent.config.system_prompt == ALIA_SYSTEM_PROMPT
+    assert agent.config.model == DEFAULT_MODEL
+    assert agent.harness.tools.lingo_tools() == []  # chat-only slice
 
 
-def test_build_llm_survives_missing_api_key(monkeypatch):
+def test_construction_survives_missing_api_key(monkeypatch, tmp_path):
     for var in ("ALIA_API_KEY", "OPENROUTER_API_KEY", "API_KEY"):
         monkeypatch.delenv(var, raising=False)
     # Must not raise: the app builds the agent at startup before any key check.
-    assert build_llm().model == DEFAULT_MODEL
+    create_alia_agent(session_path=tmp_path / "s.jsonl")

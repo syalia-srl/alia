@@ -49,8 +49,13 @@ class AliaApp(Gtk.Application):
     def submit(self, text, on_token, on_done) -> None:
         """Run one agent turn off the GTK thread, marshalling results back to it."""
         assert self.agent is not None and self._loop is not None
-        self.agent.set_on_token(lambda tok: GLib.idle_add(on_token, tok))
-        future = asyncio.run_coroutine_threadsafe(self.agent.chat(text), self._loop)
+
+        def on_chunk(tok: str) -> None:
+            GLib.idle_add(on_token, tok)
+
+        future = asyncio.run_coroutine_threadsafe(
+            self.agent.chat(text, on_chunk=on_chunk), self._loop
+        )
 
         def _done(fut) -> None:
             try:

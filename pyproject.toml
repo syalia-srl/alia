@@ -6,7 +6,9 @@ readme = "README.md"
 requires-python = ">=3.13"
 authors = [{ name = "Alejandro Piad", email = "apiad@apiad.net" }]
 dependencies = [
-    "lingo-ai>=2.0.0,<3.0",
+    # The agent runtime: sessions, persistence, tools, MCP, hooks. ALIA is a
+    # consumer of lovelaice's ACP engine, not a re-implementation on bare lingo.
+    "lovelaice>=2.1.0",
     "python-dotenv>=1.0",
 ]
 # NOTE: PyGObject (the GTK4 binding) is NOT a pip dependency on purpose.

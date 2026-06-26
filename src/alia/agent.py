@@ -1,76 +1,76 @@
-"""The ALIA agent — a thin wrapper over a lingo ``Lingo`` instance.
+"""The ALIA agent — an in-process ACP client over the lovelaice runtime.
 
-lingo is the engine under lovelaice ("a single ReAct loop on top of lingo").
-We use the bare ``Lingo`` chat surface with ALIA's persona and no tools, so
-the voice is the cognitive partner — not the coding agent.
+We drive a ``lovelaice`` Agent through its ACP server/client (the same path
+lovelaice's own CLI uses), so we inherit sessions, JSONL persistence, tool
+dispatch, hooks, and (later) MCP — rather than re-implementing an agent loop.
 
-Model config resolves from the environment, defaulting to Haiku over
-OpenRouter:
-
-    ALIA_MODEL    / MODEL              -> model slug   (default anthropic/claude-haiku-4.5)
-    ALIA_BASE_URL / BASE_URL           -> API base url (default https://openrouter.ai/api/v1)
-    ALIA_API_KEY  / OPENROUTER_API_KEY / API_KEY -> key
+The HUD talks to this class; this class talks ACP. One session is opened per
+app lifetime and reused across turns, so the conversation accumulates and
+persists to ``~/.alia/sessions/<ts>.jsonl``.
 """
 
 from __future__ import annotations
 
 import os
+from datetime import datetime
+from pathlib import Path
 from typing import Callable
 
-from lingo import LLM, Lingo
+from lovelaice.acp.client import InProcessAcpClient
+from lovelaice.acp.server import AcpServer
 
-from .persona import ALIA_SYSTEM_PROMPT
+from .host import api_key_configured, create_alia_agent
 
-DEFAULT_MODEL = "anthropic/claude-haiku-4.5"
-DEFAULT_BASE_URL = "https://openrouter.ai/api/v1"
-
-
-def _first_env(*names: str, default: str | None = None) -> str | None:
-    for name in names:
-        value = os.getenv(name)
-        if value:
-            return value
-    return default
+__all__ = ["AliaAgent", "api_key_configured"]
 
 
-# Placeholder so the OpenAI client constructs even with no key configured;
-# the auth error then surfaces at call time (in the HUD) instead of crashing
-# the app at startup.
-_NO_KEY = "NO_API_KEY_SET"
-
-
-def api_key_configured() -> bool:
-    return _first_env("ALIA_API_KEY", "OPENROUTER_API_KEY", "API_KEY") is not None
-
-
-def build_llm(on_token: Callable[[str], None] | None = None) -> LLM:
-    """Build the LLM from the environment, with ALIA's OpenRouter/Haiku defaults."""
-    return LLM(
-        model=_first_env("ALIA_MODEL", "MODEL", default=DEFAULT_MODEL),
-        base_url=_first_env("ALIA_BASE_URL", "BASE_URL", default=DEFAULT_BASE_URL),
-        api_key=_first_env("ALIA_API_KEY", "OPENROUTER_API_KEY", "API_KEY") or _NO_KEY,
-        on_token=on_token,
-    )
+def _default_session_path() -> Path:
+    ts = datetime.now().strftime("%Y%m%d-%H%M%S")
+    return Path.home() / ".alia" / "sessions" / f"{ts}.jsonl"
 
 
 class AliaAgent:
-    """ALIA's conversational core. Keeps history across turns within a session."""
+    """ALIA's conversational core, backed by the lovelaice ACP runtime."""
 
-    def __init__(self, llm: LLM | None = None) -> None:
-        self.llm = llm or build_llm()
-        self.lingo = Lingo(
-            name="ALIA",
-            description="The cognitive partner of the AI-n-Box desktop.",
-            llm=self.llm,
-            system_prompt=ALIA_SYSTEM_PROMPT,
+    def __init__(self, session_path: Path | None = None, cwd: str | None = None) -> None:
+        self.session_path = Path(session_path) if session_path else _default_session_path()
+        self.session_path.parent.mkdir(parents=True, exist_ok=True)
+        self.cwd = cwd or os.path.expanduser("~")
+        self._server = AcpServer(
+            agent_factory=lambda: create_alia_agent(
+                session_path=self.session_path, cwd=self.cwd
+            )
         )
+        self._client = InProcessAcpClient(self._server)
+        self._client.on_notification(self._on_notification)
+        self._sid: str | None = None
+        self._chunks: list[str] = []
+        self._on_chunk: Callable[[str], None] | None = None
 
-    def set_on_token(self, callback: Callable[[str], None] | None) -> None:
-        """Stream reply tokens as they arrive (set None to stop streaming)."""
-        self.llm._on_token = callback
+    async def start(self) -> None:
+        await self._client.initialize()
+        self._sid = await self._client.session_new(self.cwd)
 
-    async def chat(self, text: str) -> str:
-        """Send a user turn, return ALIA's full reply text."""
-        message = await self.lingo.chat(text)
-        content = message.content
-        return content if isinstance(content, str) else str(content)
+    def _on_notification(self, note) -> None:
+        if note.method != "session/update":
+            return
+        params = note.params or {}
+        if params.get("sessionUpdate") == "agent_message_chunk":
+            content = params.get("content", {})
+            if content.get("type") == "text":
+                text = content.get("text", "")
+                self._chunks.append(text)
+                if self._on_chunk is not None:
+                    self._on_chunk(text)
+
+    async def chat(self, text: str, on_chunk: Callable[[str], None] | None = None) -> str:
+        """Send a user turn; stream assistant text via on_chunk; return full reply."""
+        if self._sid is None:
+            await self.start()
+        self._on_chunk = on_chunk
+        self._chunks = []
+        try:
+            await self._client.session_prompt(self._sid, text)
+        finally:
+            self._on_chunk = None
+        return "".join(self._chunks)

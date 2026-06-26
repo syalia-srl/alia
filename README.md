@@ -1,8 +1,8 @@
 # ALIA
 
 **ALIA** — the cognitive partner of the AI-n-Box desktop. A native GNOME agent
-you summon with a key, backed by the [lingo](https://github.com/apiad/lovelaice)
-engine that sits under `lovelaice`.
+you summon with a key, backed by the [lovelaice](https://github.com/apiad/lovelaice)
+agent runtime (sessions, persistence, tools, MCP) over its ACP engine.
 
 This repo is the **standalone** slice: ALIA installs and runs on any recent
 GNOME, independent of AI-n-Box OS (where she'll later be baked in and pre-wired
