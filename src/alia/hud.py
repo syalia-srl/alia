@@ -144,6 +144,8 @@ class HudWindow(Gtk.ApplicationWindow):
     def _set_busy(self, busy: bool) -> None:
         self._busy = busy
         self.entry.set_sensitive(not busy)  # input lock; turn timer shows activity
+        if not busy:
+            self.entry.grab_focus()  # ready to type again, no click needed
 
     def _on_submit(self, entry: Gtk.Entry) -> None:
         text = entry.get_text().strip()
