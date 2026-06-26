@@ -13,10 +13,16 @@ are blocked outright upstream by lovelaice's bash_prefix_guard.
 
 from __future__ import annotations
 
+import re
 import shlex
 
-# Shell control that could chain/redirect/substitute — disqualifies auto-approval.
-_OPERATORS = (";", "&&", "||", "|", ">", "<", "`", "$(", "${", "\n")
+# Operators that always force a prompt: redirects (write files) and command
+# substitution (run arbitrary code). No reasoning about safety past these.
+_DISQUALIFYING = (">", "<", "`", "$(", "${", "\n")
+# Operators that merely *compose* commands. A pipeline/chain auto-runs only if
+# EVERY segment between them is itself allowlist-safe (so `ls | wc` is fine,
+# `ls | sh` is not).
+_SPLIT_RE = re.compile(r"&&|\|\||;|\|")
 
 # Well-known read-only / inert commands, safe to run without asking.
 SAFE_COMMANDS = {
@@ -47,8 +53,14 @@ _MULTI_VERB = set(SAFE_SUBCOMMANDS) | {
 }
 
 
-def has_operators(command: str) -> bool:
-    return any(op in command for op in _OPERATORS)
+def has_disqualifying(command: str) -> bool:
+    """Redirect / substitution present → always prompt, never auto-run."""
+    return any(op in command for op in _DISQUALIFYING)
+
+
+def has_split(command: str) -> bool:
+    """A pipe/chain operator is present (`|`, `;`, `&&`, `||`)."""
+    return _SPLIT_RE.search(command) is not None
 
 
 def _tokens(command: str) -> list[str]:
@@ -72,11 +84,8 @@ def approval_prefix(command: str) -> str:
     return head
 
 
-def is_auto_safe(command: str) -> bool:
-    """True if the command may run without asking (read-only allowlist)."""
-    if has_operators(command):
-        return False
-    toks = _tokens(command)
+def _segment_safe(segment: str) -> bool:
+    toks = _tokens(segment)
     if not toks:
         return False
     head = toks[0]
@@ -85,8 +94,20 @@ def is_auto_safe(command: str) -> bool:
     return head in SAFE_COMMANDS
 
 
+def is_auto_safe(command: str) -> bool:
+    """True if the command may run without asking.
+
+    No redirect/substitution, and every pipeline/chain segment is itself an
+    allowlisted read-only command (so `ls | wc -l` auto-runs, `ls | sh` does not).
+    """
+    if has_disqualifying(command):
+        return False
+    segments = [s.strip() for s in _SPLIT_RE.split(command) if s.strip()]
+    return bool(segments) and all(_segment_safe(s) for s in segments)
+
+
 def matches_prefix(command: str, approved_prefixes: set[str]) -> bool:
-    """True if this command's prefix was approved for the session."""
-    if has_operators(command):
+    """True if a simple (operator-free) command's prefix was approved this session."""
+    if has_disqualifying(command) or has_split(command):
         return False
     return approval_prefix(command) in approved_prefixes
