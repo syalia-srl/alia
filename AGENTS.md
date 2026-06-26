@@ -62,7 +62,18 @@ GTK PyGObject (`gi`) comes from the **system** (distro `python3-gobject`), not
 pip — so the venv is built with `--system-site-packages` (see Makefile). A plain
 isolated venv won't find `gi`.
 
-## Out of scope (current slice)
+## Capability surface (v1.0)
 
-Tools / acting on the system, screen perception, the autonomy dial, persistent
-`$HOME` memory, baking into ainbox-os. All are in the vision doc as next rungs.
+- Tools: `read` (auto-allowed) + `bash` (approval-gated). Gate is an async
+  `tool_call` hook in `host.create_alia_agent` that awaits an
+  `approval_handler` (app bridges it to the HUD's inline Approve/Deny bar via an
+  asyncio future). `bash_prefix_guard` runs first as a hard red-line.
+- NOTE: lovelaice's own `AskUser`/`session/request_permission` is VS2 / not
+  wired, so we do NOT use it — ALIA owns the approval bridge in-process.
+
+## Out of scope (still ahead)
+
+Screen perception (screenshots/vision, AT-SPI), mouse/keyboard control, the full
+autonomy dial (session-allow / allow-lists), persistent `$HOME` *memory* (vs
+session transcripts), named desktop tools (launch_app/notify/…), .deb packaging,
+KDE. All in the vision doc as next rungs.

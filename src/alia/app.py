@@ -34,17 +34,38 @@ class AliaApp(Gtk.Application):
         self.hold()  # stay resident even when the HUD is hidden
         self._loop = asyncio.new_event_loop()
         threading.Thread(target=self._run_loop, daemon=True).start()
-        self.agent = AliaAgent()
+        self.agent = AliaAgent(
+            approval_handler=self._approve,
+            on_event=self._forward_event,
+        )
 
     def _run_loop(self) -> None:
         assert self._loop is not None
         asyncio.set_event_loop(self._loop)
         self._loop.run_forever()
 
-    def do_activate(self) -> None:
+    def _ensure_window(self) -> HudWindow:
         if self.window is None:
             self.window = HudWindow(self)
-        self.window.toggle()
+        return self.window
+
+    def do_activate(self) -> None:
+        self._ensure_window().toggle()
+
+    async def _approve(self, tool_name: str, arguments: dict) -> bool:
+        """Bridge an agent approval request to a HUD confirm; await the click."""
+        loop = self._loop
+        assert loop is not None
+        future = loop.create_future()
+
+        def resolve(decision: bool) -> None:
+            loop.call_soon_threadsafe(future.set_result, decision)
+
+        GLib.idle_add(self._ensure_window().ask_approval, tool_name, arguments, resolve)
+        return await future
+
+    def _forward_event(self, kind: str, params: dict) -> None:
+        GLib.idle_add(self._ensure_window().on_tool_event, kind, params)
 
     def submit(self, text, on_token, on_done) -> None:
         """Run one agent turn off the GTK thread, marshalling results back to it."""

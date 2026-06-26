@@ -17,6 +17,8 @@ _CSS = b"""
 .alia-dot { color: #9b7dff; font-size: 16px; }
 .alia-transcript { background: transparent; color: #e8e8ec; padding: 8px; font-size: 14px; }
 .alia-entry { background: rgba(255,255,255,0.06); color: #ffffff; border-radius: 10px; padding: 8px; }
+.alia-approval { background: rgba(155,125,255,0.14); border-radius: 10px; padding: 8px; }
+.alia-cmd { font-family: monospace; color: #ffd28a; }
 """
 
 
@@ -41,6 +43,7 @@ class HudWindow(Gtk.ApplicationWindow):
         root.set_margin_start(16)
         root.set_margin_end(16)
         self.set_child(root)
+        self.root = root
 
         header = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
         dot = Gtk.Label(label="●")
@@ -62,6 +65,10 @@ class HudWindow(Gtk.ApplicationWindow):
         self.buffer = self.view.get_buffer()
         scroll.set_child(self.view)
         root.append(scroll)
+
+        # Holder for the inline approval bar (shown only while a command waits).
+        self.approval_holder = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+        root.append(self.approval_holder)
 
         self.entry = Gtk.Entry()
         self.entry.set_placeholder_text("Habla con ALIA…  (Enter envía · Esc cierra)")
@@ -140,3 +147,60 @@ class HudWindow(Gtk.ApplicationWindow):
         self.buffer.insert(self.buffer.get_end_iter(), "\n")
         self._busy = False
         self._scroll_to_end()
+
+    # ---- tools & approval ---------------------------------------------------
+
+    def on_tool_event(self, kind: str, params: dict) -> None:
+        """Render tool activity from ACP session/update notifications."""
+        if kind == "tool_call":
+            title = params.get("title", "tool")
+            raw = params.get("rawInput") or {}
+            detail = raw.get("command") or raw.get("path") or ""
+            self._append_dim(f"→ {title}: {detail}".rstrip(": "))
+        elif kind == "tool_call_update":
+            if params.get("status") == "completed":
+                self._append_dim("  ✓ done")
+            else:
+                err = ""
+                content = params.get("content") or []
+                if content and isinstance(content[0], dict):
+                    err = content[0].get("text", "")
+                self._append_dim(f"  ✗ {err or 'failed'}")
+
+    def _append_dim(self, text: str) -> None:
+        self.buffer.insert(self.buffer.get_end_iter(), f"\n{text}")
+        self._scroll_to_end()
+
+    def ask_approval(self, tool_name: str, arguments: dict, resolve) -> bool:
+        """Show an inline approval bar for a gated tool call; resolve(bool) on click.
+
+        Runs on the GTK thread (via idle_add). Returns False to satisfy
+        GLib.idle_add (one-shot).
+        """
+        self.present()
+        command = arguments.get("command", "")
+        bar = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        bar.add_css_class("alia-approval")
+
+        prompt = Gtk.Label(label=f"Run this {tool_name} command?", xalign=0.0)
+        cmd = Gtk.Label(label=command, xalign=0.0, wrap=True, selectable=True)
+        cmd.add_css_class("alia-cmd")
+        buttons = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8,
+                          halign=Gtk.Align.END)
+        approve = Gtk.Button(label="Approve")
+        deny = Gtk.Button(label="Deny")
+        buttons.append(deny)
+        buttons.append(approve)
+        bar.append(prompt)
+        bar.append(cmd)
+        bar.append(buttons)
+        self.approval_holder.append(bar)
+
+        def decide(decision: bool) -> None:
+            self.approval_holder.remove(bar)
+            resolve(decision)
+
+        approve.connect("clicked", lambda _b: decide(True))
+        deny.connect("clicked", lambda _b: decide(False))
+        approve.grab_focus()
+        return False

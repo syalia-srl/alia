@@ -11,17 +11,25 @@ to the local Ollama daemon).
 > Vision: `vault/Atlas/Architecture/2026-06-25-alia-cognitive-partner-vision.md`
 > in the Workspace.
 
-## What works today (v0.1 — chat-only slice)
+## What works today (v1.0)
 
 - A borderless GNOME HUD: transcript + input. **Enter** sends, **Esc** hides.
 - A resident single-instance app — pressing the shortcut again toggles the HUD;
   the agent stays alive in the background.
-- Replies stream token-by-token, in the user's language, with ALIA's persona.
-- Model-agnostic via the engine: defaults to **Haiku over OpenRouter**
+- **She acts on your machine via the shell**, with you in the loop:
+  - `read(path)` — reads any file, **silently** (observation is free).
+  - `bash(command)` — runs a shell command, but **every command waits for your
+    approval** (an inline Approve/Deny bar shows the exact command first). This
+    is how she manages files, launches apps, changes GNOME settings, sends
+    notifications, inspects the system, uses git, …
+  - Hard red-lines always blocked (`sudo`, `rm -rf /` …); tool activity is shown
+    in the transcript as it happens.
+- Conversation persists per session to `~/.alia/sessions/<ts>.jsonl`.
+- Model-agnostic via the lovelaice engine: defaults to **Haiku over OpenRouter**
   (`anthropic/claude-haiku-4.5`), points anywhere OpenAI-compatible.
 
-**Not yet:** no tools — she can talk and think, but can't act on the system
-(open apps, read files, run commands, see the screen). She says so when asked.
+**Not yet:** she can't *see* the screen (no screenshots/vision) or control the
+mouse/keyboard/click — those are the next rungs. She says so when asked.
 
 ## Requirements
 
