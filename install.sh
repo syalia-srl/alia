@@ -12,7 +12,6 @@ REPO_DIR="$(cd "$(dirname "$0")" && pwd)"
 PREFIX="${ALIA_PREFIX:-$HOME/.local/share/alia}"
 VENV="$PREFIX/venv"
 BINDIR="$HOME/.local/bin"
-APPDIR="$HOME/.local/share/applications"
 LAUNCHER="$BINDIR/alia"
 BINDING="${ALIA_BINDING:-<Super>i}"
 
@@ -41,29 +40,6 @@ install_system_deps() {
   fi
 }
 
-install_shortcut() {
-  command -v gsettings >/dev/null 2>&1 || { say "gsettings absent — set a shortcut manually"; return; }
-  local base="org.gnome.settings-daemon.plugins.media-keys"
-  local kp="/org/gnome/settings-daemon/plugins/media-keys/custom-keybindings/alia/"
-  python3 - "$base" "$kp" <<'PY'
-import ast, subprocess, sys
-base, kp = sys.argv[1], sys.argv[2]
-cur = subprocess.check_output(["gsettings", "get", base, "custom-keybindings"]).decode().strip()
-try:
-    items = ast.literal_eval(cur) if cur and cur != "@as []" else []
-except (ValueError, SyntaxError):
-    items = []
-if kp not in items:
-    items.append(kp)
-subprocess.check_call(["gsettings", "set", base, "custom-keybindings", str(items)])
-PY
-  local schema="${base}.custom-keybinding:${kp}"
-  gsettings set "$schema" name "ALIA"
-  gsettings set "$schema" command "$LAUNCHER"
-  gsettings set "$schema" binding "$BINDING"
-  say "✓ shortcut: $BINDING → alia"
-}
-
 echo "ALIA installer → $PREFIX"
 install_system_deps
 
@@ -73,7 +49,7 @@ python3 -m venv --system-site-packages "$VENV"
 "$VENV/bin/pip" install -qU pip
 "$VENV/bin/pip" install -q "$REPO_DIR"   # alia + engine from PyPI
 
-mkdir -p "$BINDIR" "$APPDIR"
+mkdir -p "$BINDIR"
 cat > "$LAUNCHER" <<EOF
 #!/usr/bin/env bash
 exec "$VENV/bin/python" -m alia "\$@"
@@ -81,21 +57,11 @@ EOF
 chmod +x "$LAUNCHER"
 say "✓ launcher: $LAUNCHER"
 
-cat > "$APPDIR/alia.desktop" <<EOF
-[Desktop Entry]
-Type=Application
-Name=ALIA
-Comment=The cognitive partner of the AI-n-Box desktop
-Exec=$LAUNCHER
-Terminal=false
-Categories=Utility;
-EOF
-say "✓ desktop entry"
-
-install_shortcut
+# Wire .desktop + GNOME shortcut + config template (shared with pip/pipx installs).
+ALIA_BINDING="$BINDING" "$LAUNCHER" setup
 
 echo
 echo "Done."
-echo "  • Configure a key: export ALIA_API_KEY (or ~/.config/alia/env)"
+echo "  • Configure a key in ~/.config/alia/env (ALIA_API_KEY=…)"
 echo "  • Summon with ${BINDING}, or run: alia"
 case ":$PATH:" in *":$BINDIR:"*) : ;; *) echo "  • NOTE: add $BINDIR to PATH to run 'alia' directly" ;; esac

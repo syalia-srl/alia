@@ -72,6 +72,21 @@ echo 'ALIA_API_KEY=sk-or-...' >> ~/.config/alia/env   # any OpenAI-compatible ke
 
 Press **`<Super>i`** (or run `alia`).
 
+## Install with pipx
+
+Requires the system GTK 4 + WebKitGTK libraries (see Requirements) — pipx's venv
+borrows them via `--system-site-packages`:
+
+```sh
+pipx install --system-site-packages alia      # PyPI (once published)
+# or, from the private repo:
+#   pipx install --system-site-packages git+ssh://git@github.com/syalia-srl/alia
+alia setup     # wires the <Super>i shortcut, .desktop entry, and config
+```
+
+`alia setup` is also safe to re-run anytime (re-checks deps, re-installs the
+shortcut). `install.sh` calls it under the hood.
+
 ## Run from source (dev)
 
 ```sh

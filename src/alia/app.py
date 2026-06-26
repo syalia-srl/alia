@@ -105,5 +105,11 @@ def _load_config() -> None:
 
 
 def main() -> int:
+    import sys
+
+    if len(sys.argv) > 1 and sys.argv[1] == "setup":
+        from .setup import run_setup
+
+        return run_setup()
     _load_config()
     return AliaApp().run(None)
