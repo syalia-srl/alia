@@ -4,4 +4,4 @@ This is the standalone slice: a native GNOME HUD you summon with a key,
 backed by the lingo/lovelaice engine. Chat only for now — no tools yet.
 """
 
-__version__ = "1.0.0"
+__version__ = "1.1.0"

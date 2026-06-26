@@ -1,6 +1,6 @@
 [project]
 name = "alia"
-version = "1.0.0"
+version = "1.1.0"
 description = "ALIA — the cognitive partner of the AI-n-Box desktop. A native GNOME agent surface on the lingo/lovelaice engine."
 readme = "README.md"
 requires-python = ">=3.13"
