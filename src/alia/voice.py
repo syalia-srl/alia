@@ -12,6 +12,7 @@ Everything is local/offline. Engines load lazily — the first call is slow
 
 from __future__ import annotations
 
+import logging
 import os
 import subprocess
 import tempfile
@@ -19,6 +20,13 @@ import threading
 import urllib.request
 from pathlib import Path
 from typing import Callable
+
+_log = logging.getLogger("alia.voice")
+if not _log.handlers and os.getenv("ALIA_VOICE_LOG", "1") != "0":
+    _h = logging.FileHandler("/tmp/alia-voice.log")
+    _h.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(message)s"))
+    _log.addHandler(_h)
+    _log.setLevel(logging.DEBUG)
 
 # STT: whisper model size (tiny/base/small/...). base is a good CPU default.
 STT_MODEL = os.getenv("ALIA_STT_MODEL", "base")
@@ -37,14 +45,21 @@ _KOKORO_FILES = {
 
 
 class Transcriber:
-    """Push-to-talk STT. start() begins capture; stop() returns the final text."""
+    """Push-to-talk STT — record a clip, then transcribe it.
+
+    Records with a fresh sounddevice ``InputStream`` per session and transcribes
+    the whole clip with harp's ``LocalWhisperEngine``. Record-then-transcribe
+    (no live partials) was chosen over harp's streaming ``HarpSession`` because
+    repeated open/close of the streaming mic across sessions proved unreliable;
+    a fresh InputStream + one-shot transcribe is solid across many sessions.
+    """
 
     def __init__(self, model_size: str = STT_MODEL, language: str | None = STT_LANGUAGE) -> None:
         self._model_size = model_size
         self._language = language
         self._engine = None
-        self._session = None
-        self._worker: threading.Thread | None = None
+        self._stream = None
+        self._frames: list = []
 
     def _ensure_engine(self) -> None:
         if self._engine is None:
@@ -56,41 +71,57 @@ class Transcriber:
 
     @property
     def listening(self) -> bool:
-        return self._session is not None
+        return self._stream is not None
 
     def start(self, on_partial: Callable[[str], None] | None = None) -> None:
-        """Open the mic and begin streaming. on_partial(text) gets live prefixes."""
-        if self._session is not None:
+        """Begin recording. (on_partial is unused — text arrives on stop().)"""
+        if self._stream is not None:
+            _log.warning("start() ignored: already recording")
             return
         self._ensure_engine()
-        from harp import HarpSession, MicrophoneSource
+        import sounddevice as sd
 
-        mic = MicrophoneSource(sample_rate=16000)
-        self._session = HarpSession(
-            audio=mic, transcribe=self._engine.transcribe,
-            slide_interval=0.5, language=self._language)
-        self._session.__enter__()
+        self._frames = []
 
-        def _pump() -> None:
-            for event in self._session.events():
-                if on_partial is not None:
-                    on_partial(event.text)
+        def _cb(indata, _frames, _time, _status) -> None:
+            self._frames.append(indata[:, 0].copy())
 
-        self._worker = threading.Thread(target=_pump, daemon=True)
-        self._worker.start()
+        self._stream = sd.InputStream(
+            samplerate=16000, channels=1, dtype="float32", callback=_cb)
+        self._stream.start()
+        _log.info("recording started")
 
     def stop(self) -> str:
-        """Stop capture, return the final transcription."""
-        if self._session is None:
+        """Stop recording, transcribe the clip, return the text. Always resets."""
+        import numpy as np
+
+        stream = self._stream
+        if stream is None:
+            _log.warning("stop() with no active recording")
             return ""
-        session = self._session
-        session.stop()
-        if self._worker is not None:
-            self._worker.join(timeout=15)
-        text = session.final_text
-        session.__exit__(None, None, None)
-        self._session = None
-        self._worker = None
+        try:
+            stream.stop()
+            stream.close()
+        except Exception:
+            _log.exception("stream close failed")
+        finally:
+            self._stream = None
+
+        if not self._frames:
+            _log.info("stopped: no audio captured")
+            return ""
+        audio = np.concatenate(self._frames).astype("float32")
+        secs = len(audio) / 16000
+        rms = float(np.sqrt(np.mean(audio**2))) if audio.size else 0.0
+        if rms < 0.006:  # essentially silence — skip (whisper hallucinates on it)
+            _log.info("stopped: silent (%.1fs rms=%.4f), skipping", secs, rms)
+            return ""
+        try:
+            text = (self._engine.transcribe(audio, None, self._language) or "").strip()
+        except Exception:
+            _log.exception("transcribe failed")
+            return ""
+        _log.info("stopped: %.1fs audio -> %r", secs, text)
         return text
 
 
