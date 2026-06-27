@@ -11,7 +11,20 @@ to the local Ollama daemon).
 > Vision: `vault/Atlas/Architecture/2026-06-25-alia-cognitive-partner-vision.md`
 > in the Workspace.
 
-## What works today (v1.0)
+## Voice (v1.2)
+
+ALIA is a four-modality partner — text *and* voice, in *and* out:
+
+- **🎤 push-to-talk** — click the mic, speak, click to stop; it transcribes the
+  clip locally (harp's whisper engine) and auto-sends. Offline.
+- **🔊 talk-back** — if you spoke, she speaks the reply (Kokoro via `kokoro-onnx`,
+  CPU, no torch). Mirrors your modality; the 🔊 toggle mutes it. Typed input
+  stays text-only.
+
+Needs `PortAudio` + `espeak-ng` (see Requirements); `install.sh`/`alia setup`
+add them. Models download once to `~/.cache/alia`.
+
+## What works today (v1.0 agent core)
 
 - A borderless GNOME HUD with a **WebKit transcript** — real markdown +
   syntax highlighting (reuses superbot's `marked`/`highlight`), an in-page
@@ -44,6 +57,8 @@ mouse/keyboard/click — those are the next rungs. She says so when asked.
   from your distro, not pip).
 - **WebKitGTK 6.0** for the transcript (`gir1.2-webkit-6.0` on Debian/Ubuntu;
   `webkitgtk6.0` on Fedora).
+- For voice: **PortAudio** + **espeak-ng** (`libportaudio2 espeak-ng` on
+  Debian/Ubuntu; `portaudio espeak-ng` on Fedora).
 - Python ≥ 3.13.
 
 ## Install

@@ -17,25 +17,29 @@ BINDING="${ALIA_BINDING:-<Super>i}"
 
 say() { printf '  %s\n' "$*"; }
 
-have_gui_deps() {
+have_system_deps() {
+  # GTK4 + WebKit (HUD) and PortAudio + espeak-ng (voice).
   python3 - <<'PY' 2>/dev/null
-import gi
+import gi, shutil, ctypes.util
 gi.require_version("Gtk", "4.0")
 gi.require_version("WebKit", "6.0")
 from gi.repository import Gtk, WebKit  # noqa
+assert ctypes.util.find_library("portaudio"), "portaudio"
+assert shutil.which("espeak-ng"), "espeak-ng"
 PY
 }
 
 install_system_deps() {
-  if have_gui_deps; then say "✓ GTK 4 + WebKitGTK 6.0 already present"; return; fi
-  say "Installing GTK 4 + PyGObject + WebKitGTK 6.0 (needs sudo)…"
+  if have_system_deps; then say "✓ system deps present (GTK4/WebKit + PortAudio/espeak-ng)"; return; fi
+  say "Installing system deps: GTK4 + WebKit (HUD) + PortAudio + espeak-ng (voice) — needs sudo…"
   if command -v apt >/dev/null 2>&1; then
     sudo apt update && sudo apt install -y \
-      python3-venv python3-gi gir1.2-gtk-4.0 gir1.2-webkit-6.0
+      python3-venv python3-gi gir1.2-gtk-4.0 gir1.2-webkit-6.0 \
+      libportaudio2 espeak-ng
   elif command -v dnf >/dev/null 2>&1; then
-    sudo dnf install -y python3 python3-gobject gtk4 webkitgtk6.0
+    sudo dnf install -y python3 python3-gobject gtk4 webkitgtk6.0 portaudio espeak-ng
   else
-    echo "Unsupported distro — install GTK 4 + PyGObject + WebKitGTK 6.0 manually." >&2
+    echo "Unsupported distro — install GTK4 + WebKitGTK6 + PortAudio + espeak-ng manually." >&2
     exit 1
   fi
 }

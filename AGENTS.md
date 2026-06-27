@@ -62,6 +62,17 @@ GTK PyGObject (`gi`) comes from the **system** (distro `python3-gobject`), not
 pip — so the venv is built with `--system-site-packages` (see Makefile). A plain
 isolated venv won't find `gi`.
 
+## Voice (v1.2)
+
+`src/alia/voice.py`: `Transcriber` (push-to-talk STT) records a clip with a
+fresh `sounddevice.InputStream` per session and transcribes it one-shot via
+harp's `LocalWhisperEngine` — record-then-transcribe, NOT harp's streaming
+`HarpSession` (repeated streaming-mic open/close leaked/captured-nothing on the
+2nd+ session). `Speaker` (TTS) uses `kokoro-onnx` (onnxruntime, NO torch) → `aplay`;
+model fetched once to `~/.cache/alia`. HUD: 🎤 mic toggle + 🔊 talk-back toggle;
+modality mirroring (spoke→speaks back). app.py runs both off the GTK thread,
+engines lazy. Voice log: `/tmp/alia-voice.log` (disable with `ALIA_VOICE_LOG=0`).
+
 ## Capability surface (v1.0)
 
 - Tools: `read` (auto-allowed) + `bash` (approval-gated). Gate is an async

@@ -34,13 +34,26 @@ def _check_deps() -> bool:
         from gi.repository import Gtk, WebKit  # noqa: F401
 
         print("  ✓ GTK 4 + WebKitGTK 6.0 present")
-        return True
+        ok = True
     except (ImportError, ValueError) as exc:
-        print(f"  ✗ missing GTK 4 / WebKitGTK 6.0: {exc}")
+        print(f"  ✗ missing GTK 4 / WebKitGTK 6.0 (HUD): {exc}")
         print("    Ubuntu/Debian: sudo apt install python3-gi gir1.2-gtk-4.0 gir1.2-webkit-6.0")
         print("    Fedora:        sudo dnf install python3-gobject gtk4 webkitgtk6.0")
-        print("    (and reinstall with: pipx install --system-site-packages alia)")
-        return False
+        print("    (then reinstall: pipx install --system-site-packages alia-ai)")
+        ok = False
+
+    import ctypes.util
+    import shutil
+
+    missing = [n for n, p in (("PortAudio", ctypes.util.find_library("portaudio")),
+                              ("espeak-ng", shutil.which("espeak-ng"))) if not p]
+    if missing:
+        print(f"  ! voice needs {', '.join(missing)} (optional)")
+        print("    Ubuntu/Debian: sudo apt install libportaudio2 espeak-ng")
+        print("    Fedora:        sudo dnf install portaudio espeak-ng")
+    else:
+        print("  ✓ PortAudio + espeak-ng present (voice ready)")
+    return ok
 
 
 def _write_desktop(launcher: str) -> None:

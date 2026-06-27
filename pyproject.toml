@@ -2,7 +2,7 @@
 # Distribution name (PyPI): "alia" is taken. The import package and the CLI
 # command both stay `alia`.
 name = "alia-ai"
-version = "1.1.0"
+version = "1.2.0"
 description = "ALIA — the cognitive partner of the AI-n-Box desktop. A native GNOME agent surface on the lingo/lovelaice engine."
 readme = "README.md"
 requires-python = ">=3.13"
