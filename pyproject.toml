@@ -12,6 +12,11 @@ dependencies = [
     # consumer of lovelaice's ACP engine, not a re-implementation on bare lingo.
     "lovelaice>=2.1.0",
     "python-dotenv>=1.0",
+    # Voice: local STT via harp's HarpSession, local TTS via Kokoro.
+    # kokoro-onnx (onnxruntime) not kokoro (torch) — CPU-light, no 2GB torch.
+    "harpio>=0.7.0",
+    "kokoro-onnx>=0.4",
+    "soundfile>=0.12",
 ]
 # NOTE: PyGObject (the GTK4 binding) is NOT a pip dependency on purpose.
 # It comes from the system (distro `python3-gobject` + GTK4), and the venv

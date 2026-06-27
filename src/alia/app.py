@@ -38,6 +38,8 @@ class AliaApp(Gtk.Application):
             approval_handler=self._approve,
             on_event=self._forward_event,
         )
+        self._transcriber = None  # alia.voice.Transcriber (lazy)
+        self._speaker = None  # alia.voice.Speaker (lazy)
 
     def _run_loop(self) -> None:
         assert self._loop is not None
@@ -69,6 +71,45 @@ class AliaApp(Gtk.Application):
 
     def _forward_event(self, kind: str, params: dict) -> None:
         GLib.idle_add(self._ensure_window().on_tool_event, kind, params)
+
+    # ---- voice (STT in / TTS out), off the GTK thread -----------------------
+
+    def start_listening(self, on_partial, on_ready) -> None:
+        """Open the mic and stream partial transcripts (lazy whisper load)."""
+        from .voice import Transcriber
+
+        def work() -> None:
+            try:
+                if self._transcriber is None:
+                    self._transcriber = Transcriber()
+                self._transcriber.start(on_partial=lambda t: GLib.idle_add(on_partial, t))
+                GLib.idle_add(on_ready, True, "")
+            except Exception as exc:  # mic/model failure → tell the HUD
+                GLib.idle_add(on_ready, False, str(exc))
+
+        threading.Thread(target=work, daemon=True).start()
+
+    def stop_listening(self, on_final) -> None:
+        """Stop capture and deliver the final transcript to on_final(text)."""
+        def work() -> None:
+            text = self._transcriber.stop() if self._transcriber else ""
+            GLib.idle_add(on_final, text)
+
+        threading.Thread(target=work, daemon=True).start()
+
+    def speak(self, text: str) -> None:
+        """Speak a reply aloud (lazy kokoro load); fire-and-forget."""
+        from .voice import Speaker
+
+        def work() -> None:
+            try:
+                if self._speaker is None:
+                    self._speaker = Speaker()
+                self._speaker.speak(text)
+            except Exception:
+                pass  # TTS is best-effort; never break the turn
+
+        threading.Thread(target=work, daemon=True).start()
 
     def submit(self, text, on_token, on_done) -> None:
         """Run one agent turn off the GTK thread, marshalling results back to it."""

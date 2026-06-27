@@ -55,6 +55,15 @@ class HudWindow(Gtk.ApplicationWindow):
         dot = Gtk.Label(label="●"); dot.add_css_class("alia-dot")
         title = Gtk.Label(label="ALIA"); title.add_css_class("alia-header")
         header.append(dot); header.append(title)
+        header.append(Gtk.Box(hexpand=True))  # spacer
+        self.voice_out_btn = Gtk.ToggleButton(label="🔊")
+        self.voice_out_btn.set_active(True)
+        self.voice_out_btn.set_tooltip_text("Speak replies aloud")
+        self.mic_btn = Gtk.Button(label="🎤")
+        self.mic_btn.set_tooltip_text("Talk to ALIA (click to start/stop)")
+        self.mic_btn.connect("clicked", self._on_mic)
+        header.append(self.voice_out_btn)
+        header.append(self.mic_btn)
         root.append(header)
 
         # Transcript: WebKit WebView.
@@ -85,6 +94,8 @@ class HudWindow(Gtk.ApplicationWindow):
         self.connect("close-request", self._on_close)
 
         self._busy = False
+        self._listening = False
+        self._last_was_voice = False
 
     # ---- JS bridge ----------------------------------------------------------
 
@@ -152,10 +163,55 @@ class HudWindow(Gtk.ApplicationWindow):
         if not text or self._busy:
             return
         entry.set_text("")
+        self._last_was_voice = False
+        self._submit_text(text)
+
+    def _submit_text(self, text: str) -> None:
         self._call("aliaAddUser", text)
         self._call("aliaBeginTurn")  # ALIA header + live turn timer; tools nest under it
         self._set_busy(True)
         self.app.submit(text, self._on_token, self._on_reply_done)
+
+    # ---- voice -------------------------------------------------------------
+
+    def _on_mic(self, _btn) -> None:
+        if self._busy:
+            return
+        if not self._listening:
+            self._listening = True
+            self.mic_btn.set_label("●")
+            self.entry.set_sensitive(False)
+            self.entry.set_text("")
+            self.entry.set_placeholder_text("Escuchando…  (clic para terminar)")
+            self.app.start_listening(self._on_voice_partial, self._on_listen_ready)
+        else:
+            self._listening = False
+            self.mic_btn.set_label("🎤")
+            self.entry.set_placeholder_text("Procesando voz…")
+            self.app.stop_listening(self._on_voice_final)
+
+    def _on_listen_ready(self, ok: bool, err: str) -> bool:
+        if not ok:
+            self._listening = False
+            self.mic_btn.set_label("🎤")
+            self.entry.set_sensitive(True)
+            self.entry.set_placeholder_text("Habla con ALIA…  (Enter envía · Esc cierra)")
+            self._call("aliaAddAssistant", f"*(no pude usar el micrófono: {err})*")
+        return False
+
+    def _on_voice_partial(self, text: str) -> bool:
+        self.entry.set_text(text)  # live transcription in the input
+        return False
+
+    def _on_voice_final(self, text: str) -> bool:
+        self.entry.set_sensitive(True)
+        self.entry.set_placeholder_text("Habla con ALIA…  (Enter envía · Esc cierra)")
+        text = (text or "").strip()
+        self.entry.set_text("")
+        if text:
+            self._last_was_voice = True
+            self._submit_text(text)  # auto-send
+        return False
 
     def _on_token(self, chunk: str) -> None:
         # Each chunk is a finalized assistant message; render in arrival order
@@ -163,9 +219,12 @@ class HudWindow(Gtk.ApplicationWindow):
         if chunk:
             self._call("aliaAddAssistant", chunk)
 
-    def _on_reply_done(self, _reply: str) -> None:
+    def _on_reply_done(self, reply: str) -> None:
         self._call("aliaEndTurn")
         self._set_busy(False)
+        # Modality mirroring: if you spoke, she speaks back (unless muted).
+        if self._last_was_voice and self.voice_out_btn.get_active() and reply.strip():
+            self.app.speak(reply)
 
     # ---- tools & approval ---------------------------------------------------
 
